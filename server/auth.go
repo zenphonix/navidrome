@@ -231,6 +231,43 @@ func UsernameFromConfig(*http.Request) string {
 	return conf.Server.DevAutoLoginUsername
 }
 
+func createNewUser(ctx context.Context, ds model.DataStore, username, password string) error {
+	log.Warn(ctx, "Automatically creating user", "user", username)
+	now := time.Now()
+	caser := cases.Title(language.Und)
+	newUser := model.User{
+		ID:          id.NewRandom(),
+		UserName:    username,
+		Name:        caser.String(username),
+		Email:       "",
+		NewPassword: password,
+		IsAdmin:     false,
+		LastLoginAt: &now,
+	}
+	err := ds.User(ctx).Put(&newUser)
+	if err != nil {
+		log.Error(ctx, "Could not automatically create user", "user", newUser, err)
+	}
+	return nil
+}
+
+func createUser(ds model.DataStore) func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		username, password, err := getCredentialsFromBody(r)
+		if err != nil {
+			log.Error(r, "parsing request body", err)
+			_ = rest.RespondWithError(w, http.StatusUnprocessableEntity, err.Error())
+			return
+		}
+		err = createNewUser(r.Context(), ds, username, password)
+		if err != nil {
+			_ = rest.RespondWithError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		doLogin(ds, username, password, w, r)
+	}
+}
+
 func contextWithUser(ctx context.Context, ds model.DataStore, username string) (context.Context, error) {
 	user, err := ds.User(ctx).FindByUsername(username)
 	if err == nil {
@@ -238,6 +275,25 @@ func contextWithUser(ctx context.Context, ds model.DataStore, username string) (
 		ctx = request.WithUsername(ctx, user.UserName)
 		return request.WithUser(ctx, *user), nil
 	}
+	log.Error(ctx, "Authenticated username not found in DB", "username", username)
+	return ctx, err
+}
+
+func contextWithExtAuthUser(ctx context.Context, ds model.DataStore, username string) (context.Context, error) {
+	user, err := ds.User(ctx).FindByUsername(username)
+	if err == nil {
+		ctx = log.NewContext(ctx, "username", username)
+		ctx = request.WithUsername(ctx, user.UserName)
+		return request.WithUser(ctx, *user), nil
+	}
+	createUser(ds)
+	user, err := ds.User(ctx).FindByUsername(username)
+	if err == nil {
+		ctx = log.NewContext(ctx, "username", username)
+		ctx = request.WithUsername(ctx, user.UserName)
+		return request.WithUser(ctx, *user), nil
+	}
+	
 	log.Error(ctx, "Authenticated username not found in DB", "username", username)
 	return ctx, err
 }
@@ -253,7 +309,9 @@ func authenticateRequest(ds model.DataStore, r *http.Request, findUsernameFns ..
 	if username == "" {
 		return nil, ErrUnauthenticated
 	}
-	handleLoginFromHeaders(ds, r)
+	if usename == UsernameFromExtAuthHeader(r) {
+		return contextWithExtAuthUser(r.Context(), ds, username)
+	}
 	return contextWithUser(r.Context(), ds, username)
 }
 
