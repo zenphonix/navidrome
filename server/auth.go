@@ -251,12 +251,9 @@ func authenticateRequest(ds model.DataStore, r *http.Request, findUsernameFns ..
 		}
 	}
 	if username == "" {
-		auth := handleLoginFromHeaders(ds, r)
-		username = auth.username
-		if username == "" {
-			return nil, ErrUnauthenticated
-		}
+		return nil, ErrUnauthenticated
 	}
+	handleLoginFromHeaders(ds, r)
 	return contextWithUser(r.Context(), ds, username)
 }
 
