@@ -238,10 +238,6 @@ func contextWithUser(ctx context.Context, ds model.DataStore, username string) (
 		ctx = request.WithUsername(ctx, user.UserName)
 		return request.WithUser(ctx, *user), nil
 	}
-	auth := handleLoginFromHeaders(ds, r)
-	if auth != nil {
-		appConfig["auth"] = auth
-	}
 	log.Error(ctx, "Authenticated username not found in DB", "username", username)
 	return ctx, err
 }
