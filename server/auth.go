@@ -287,11 +287,11 @@ func contextWithExtAuthUser(ctx context.Context, ds model.DataStore, username st
 		return request.WithUser(ctx, *user), nil
 	}
 	createUser(ds)
-	user, err := ds.User(ctx).FindByUsername(username)
-	if err == nil {
+	user_new, err_new := ds.User(ctx).FindByUsername(username)
+	if err_new == nil {
 		ctx = log.NewContext(ctx, "username", username)
-		ctx = request.WithUsername(ctx, user.UserName)
-		return request.WithUser(ctx, *user), nil
+		ctx = request.WithUsername(ctx, user_new.UserName)
+		return request.WithUser(ctx, *user_new), nil
 	}
 	
 	log.Error(ctx, "Authenticated username not found in DB", "username", username)
@@ -309,7 +309,7 @@ func authenticateRequest(ds model.DataStore, r *http.Request, findUsernameFns ..
 	if username == "" {
 		return nil, ErrUnauthenticated
 	}
-	if usename == UsernameFromExtAuthHeader(r) {
+	if username == UsernameFromExtAuthHeader(r) {
 		return contextWithExtAuthUser(r.Context(), ds, username)
 	}
 	return contextWithUser(r.Context(), ds, username)
