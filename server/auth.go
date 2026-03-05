@@ -231,42 +231,39 @@ func UsernameFromConfig(*http.Request) string {
 	return conf.Server.DevAutoLoginUsername
 }
 
-func createNewUser(ctx context.Context, ds model.DataStore, username, password string) error {
-	log.Warn(ctx, "Automatically creating user", "user", username)
-	now := time.Now()
-	caser := cases.Title(language.Und)
-	newUser := model.User{
-		ID:          id.NewRandom(),
-		UserName:    username,
-		Name:        caser.String(username),
-		Email:       "",
-		NewPassword: password,
-		IsAdmin:     false,
-		LastLoginAt: &now,
+func autoLoginFromHeaders(ds model.DataStore, r *http.Request) map[string]any {
+	username = UsernameFromExtAuthHeader(r)
+	if username == "" {
+		return nil
 	}
-	err := ds.User(ctx).Put(&newUser)
-	if err != nil {
-		log.Error(ctx, "Could not automatically create user", "user", newUser, err)
-	}
-	return nil
-}
 
-func createUser(ds model.DataStore) func(w http.ResponseWriter, r *http.Request) {
-	return func(w http.ResponseWriter, r *http.Request) {
-		username, password, err := getCredentialsFromBody(r)
-		if err != nil {
-			log.Error(r, "parsing request body", err)
-			_ = rest.RespondWithError(w, http.StatusUnprocessableEntity, err.Error())
-			return
+	userRepo := ds.User(r.Context())
+	user, err := userRepo.FindByUsernameWithPassword(username)
+	if user == nil || err != nil {
+		log.Info(r, "User passed in header not found", "user", username)
+		// Check if this is the first user being created
+		count, _ := userRepo.CountAll()
+		isFirstUser := count == 0
+
+		newUser := model.User{
+			ID:          id.NewRandom(),
+			UserName:    username,
+			Name:        username,
+			Email:       "",
+			NewPassword: consts.PasswordAutogenPrefix + id.NewRandom(),
+			IsAdmin:     isFirstUser, // Make the first user an admin
 		}
-		err = createNewUser(r.Context(), ds, username, password)
+		err := userRepo.Put(&newUser)
 		if err != nil {
-			_ = rest.RespondWithError(w, http.StatusInternalServerError, err.Error())
-			return
+			log.Error(r, "Could not autocreate new user", "user", username, err)
+			return nil
 		}
-		doLogin(ds, username, password, w, r)
+		user, err = userRepo.FindByUsernameWithPassword(username)
+		if user == nil || err != nil {
+			log.Error(r, "Autocreated user but failed to fetch it", "user", username)
+			return nil
+		}
 	}
-}
 
 func contextWithUser(ctx context.Context, ds model.DataStore, username string) (context.Context, error) {
 	user, err := ds.User(ctx).FindByUsername(username)
@@ -275,25 +272,6 @@ func contextWithUser(ctx context.Context, ds model.DataStore, username string) (
 		ctx = request.WithUsername(ctx, user.UserName)
 		return request.WithUser(ctx, *user), nil
 	}
-	log.Error(ctx, "Authenticated username not found in DB", "username", username)
-	return ctx, err
-}
-
-func contextWithExtAuthUser(ctx context.Context, ds model.DataStore, username string) (context.Context, error) {
-	user, err := ds.User(ctx).FindByUsername(username)
-	if err == nil {
-		ctx = log.NewContext(ctx, "username", username)
-		ctx = request.WithUsername(ctx, user.UserName)
-		return request.WithUser(ctx, *user), nil
-	}
-	createUser(ds)
-	user_new, err_new := ds.User(ctx).FindByUsername(username)
-	if err_new == nil {
-		ctx = log.NewContext(ctx, "username", username)
-		ctx = request.WithUsername(ctx, user_new.UserName)
-		return request.WithUser(ctx, *user_new), nil
-	}
-	
 	log.Error(ctx, "Authenticated username not found in DB", "username", username)
 	return ctx, err
 }
@@ -310,7 +288,7 @@ func authenticateRequest(ds model.DataStore, r *http.Request, findUsernameFns ..
 		return nil, ErrUnauthenticated
 	}
 	if username == UsernameFromExtAuthHeader(r) {
-		return contextWithExtAuthUser(r.Context(), ds, username)
+		autoLoginFromHeaders(ds, r)
 	}
 	return contextWithUser(r.Context(), ds, username)
 }
