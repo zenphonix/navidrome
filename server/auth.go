@@ -232,7 +232,7 @@ func UsernameFromConfig(*http.Request) string {
 }
 
 func autoLoginFromHeaders(ds model.DataStore, r *http.Request) map[string]any {
-	username = UsernameFromExtAuthHeader(r)
+	username := UsernameFromExtAuthHeader(r)
 	if username == "" {
 		return nil
 	}
