@@ -264,6 +264,7 @@ func autoLoginFromHeaders(ds model.DataStore, r *http.Request) map[string]any {
 			return nil
 		}
 	}
+}
 
 func contextWithUser(ctx context.Context, ds model.DataStore, username string) (context.Context, error) {
 	user, err := ds.User(ctx).FindByUsername(username)
