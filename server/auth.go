@@ -264,6 +264,14 @@ func autoLoginFromHeaders(ds model.DataStore, r *http.Request) map[string]any {
 			return nil
 		}
 	}
+
+	err = userRepo.UpdateLastLoginAt(user.ID)
+	if err != nil {
+		log.Error(r, "Could not update LastLoginAt", "user", username, err)
+		return nil
+	}
+
+	return buildAuthPayload(user)
 }
 
 func contextWithUser(ctx context.Context, ds model.DataStore, username string) (context.Context, error) {
